@@ -3,7 +3,8 @@ package main
 import "fmt"
 
 func main() {
-	tasks := []int{2, 3, 4, 5, 7, 10, 12, 40}
+	tasks := []int{2, 3, 4, 5, 7, 10, 12, 40, 41, 42, 43, 44}
+	// tasks := []int{12, 40, 41, 42, 43, 44, 45, 46, 47, 48}
 	nWorkers := 3
 	jobs := make(chan int, len(tasks))
 	results := make(chan int, len(tasks))
@@ -15,10 +16,14 @@ func main() {
 	for _, value := range tasks {
 		jobs <- value
 	}
+	// fmt.Println(len(jobs))
 	close(jobs)
+	fmt.Println(len(jobs))
 
 	for r := 0; r < len(tasks); r++ {
-		<-results
+		fmt.Println(len(jobs))
+		fmt.Println("Result: ", <-results)
+		// <-results
 	}
 }
 
@@ -37,3 +42,13 @@ func Fibonacci(n int) int {
 	}
 	return Fibonacci(n-1) + Fibonacci(n-2)
 }
+
+/*
+	Creo que la respuesta esta en el range de cada worker, este obtendra (cosumira) una tarea y despues pasara a ejecutar la serie fibonacci, quedandose en espera hasta obtener el resultado.
+
+Es ahi donde entran los otros workers sin tareas a seguir consumiendo en el for range.
+
+La manera en que se liberan, es en la ultima parte del main, cuando hacemos el ciclo for y solo vamos cosumiendo los resultados.
+
+
+*/

@@ -1,104 +1,168 @@
-package project
+package main
 
 import (
 	"fmt"
+	"log"
+	"net/http"
+	"strconv"
 	"time"
 )
 
-// Estructura de la tareas de procesar
+// Job represents a job to be executed, with a name and a number and a delay
 type Job struct {
-	Name   string        //Nombre de la tarea
-	Delay  time.Duration //Tiempo de espera
-	Number int           // Numero a procesar
+	Name   string        // name of the job
+	Delay  time.Duration // delay between each job
+	Number int           // number to calculate on the fibonacci sequence
 }
 
+// Worker will be our concurrency-friendly worker
 type Worker struct {
-	Id         int           // id del Worker
-	JobQueue   chan Job      // Canal de tareas del worker
-	WorkerPool chan chan Job //Canal de canales de tareas, este canal se comparte entre todos los workers
-	QuitChan   chan bool     //Canal para parar al worker
+	Id         int           // id of the worker
+	JobQueue   chan Job      // Jobs to be processed
+	WorkerPool chan chan Job // Pool of workers
+	Quit       chan bool     // Quit worker
 }
 
+// Dispatcher is a dispatcher that will dispatch jobs to workers
 type Dispatcher struct {
-	WorkerPool chan chan Job //Canal de canales de tareas, este se les pasa a cada worker nuevo
-	MaxWorkers int           //cantidad maxima de workers
-	JobQueue   chan Job      //Canal de tareas, se puede ver como un canal global de tareas que despues se reparten entre workers
+	WorkerPool chan chan Job // Pool of workers
+	MaxWorkers int           // Maximum number of workers
+	JobQueue   chan Job      // Jobs to be processed
 }
 
+// NewWorker returns a new Worker with the provided id and workerpool
 func NewWorker(id int, workerPool chan chan Job) *Worker {
 	return &Worker{
-		Id:         id,              //Se asigna un id
-		WorkerPool: workerPool,      //Se le indica el canal donde tiene quie agregar su canal de tareas
-		JobQueue:   make(chan Job),  //Canal de tareas del worker
-		QuitChan:   make(chan bool), //Canal para parar al worker
+		Id:         id,
+		WorkerPool: workerPool,
+		JobQueue:   make(chan Job),  // create a job queue
+		Quit:       make(chan bool), // Channel to end jobs
 	}
 }
 
+// Start method starts all workers
 func (w Worker) Start() {
-
-	//Se inicia de manera concurrente un ciclo sin fin
 	go func() {
 		for {
+			w.WorkerPool <- w.JobQueue // add job to pool
 
-			//Al worker pool se manda el canal de worker, este se manda cada vez iteracion, es decir cuando el worker termino de hacer un jobs
-			w.WorkerPool <- w.JobQueue
-
-			//Se multiplexean los canales del worker
+			// Multiplexing
 			select {
-			case job := <-w.JobQueue:
-				//Si se recibe un job en el canal de tareas del worker se ejecuta
-				fmt.Printf("Worker with id %d Started\n", w.Id)
+			case job := <-w.JobQueue: // get job from queue
+				fmt.Printf("worker%d: started %s, %d\n", w.Id, job.Name, job.Number)
 				fib := Fibonacci(job.Number)
 				time.Sleep(job.Delay)
-				fmt.Printf("Worker with id %d Finishes with result %d\n", w.Id, fib)
-
-			case <-w.QuitChan:
-				//Si se recibe un job en el canal de salida se para el worker (lo sca del ciclo)
+				fmt.Printf("worker%d: finished %s, %d with result %d\n", w.Id, job.Name, job.Number, fib)
+			case <-w.Quit: // quit if worker is told to do so
 				fmt.Printf("Worker with id %d Stopped\n", w.Id)
 				return
 			}
-
 		}
 	}()
 }
 
-// La funcion stop manda un true al canl de salida del worker
+// Stop method stop the worker
 func (w Worker) Stop() {
 	go func() {
-		w.QuitChan <- true
+		w.Quit <- true
 	}()
 }
 
-//El dispatcher cuenta con el el canal global de jobs y un canal de todos los canales de los workers
-
-func NewDispatcher(jobQueue chan Job, maxWorkers int) *Dispatcher {
-
-	worker := make(chan chan Job, maxWorkers)
-	return &Dispatcher{
-		JobQueue:   jobQueue,
-		MaxWorkers: maxWorkers,
-		WorkerPool: worker,
-	}
-}
-
-func (d *Dispatcher) Dispatch() {
-
-	//Inicia de manera indefinidad a mandar jobs a los canales que se van recibiendo en el canal de caneles de jobs
-	for {
-		select {
-		case job := <-d.JobQueue:
-			go func() {
-				workerJobQueue := <-d.WorkerPool
-				workerJobQueue <- job
-			}()
-		}
-	}
-}
-
+// Fibonacci calculates the fibonacci sequence
 func Fibonacci(n int) int {
 	if n <= 1 {
 		return n
 	}
-
 	return Fibonacci(n-1) + Fibonacci(n-2)
+}
+
+// NewDispatcher returns a new Dispatcher with the provided maxWorkers
+func NewDispatcher(jobQueue chan Job, maxWorkers int) *Dispatcher {
+	pool := make(chan chan Job, maxWorkers)
+	return &Dispatcher{
+		WorkerPool: pool,
+		MaxWorkers: maxWorkers,
+		JobQueue:   jobQueue,
+	}
+}
+
+// Dispatch will dispatch jobs to workers
+func (d *Dispatcher) dispatch() {
+	for job := range d.JobQueue {
+		// Asign the job to a worker
+		go func(job Job) {
+			jobChannel := <-d.WorkerPool // get worker from pool
+			jobChannel <- job            // Workers will read from this channel
+		}(job)
+	}
+}
+
+// Run will start the dispatcher
+func (d *Dispatcher) Run() {
+	for i := 0; i < d.MaxWorkers; i++ {
+		worker := NewWorker(i, d.WorkerPool) // create a new worker
+		worker.Start()                       // start the worker
+	}
+
+	// Start the dispatcher
+	go d.dispatch()
+}
+
+// Handle the request from the server
+func RequestHandler(w http.ResponseWriter, r *http.Request, jobQueue chan Job) {
+	if r.Method != "POST" {
+		w.Header().Add("Allow", "POST")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse the request
+	delay, err := time.ParseDuration(r.FormValue("delay"))
+	if err != nil {
+		http.Error(w, "Invalid delay", http.StatusBadRequest)
+		return
+	}
+
+	value, err := strconv.Atoi(r.FormValue("value"))
+	if err != nil {
+		http.Error(w, "Invalid value", http.StatusBadRequest)
+		return
+	}
+
+	name := r.FormValue("name")
+	if name == "" {
+		http.Error(w, "Invalid name", http.StatusBadRequest)
+		return
+	}
+
+	// Create the job
+	job := Job{
+		Name:   name,
+		Delay:  delay,
+		Number: value,
+	}
+
+	// Add the job to the queue
+	jobQueue <- job // send the job
+	w.WriteHeader(http.StatusOK)
+}
+
+func main() {
+	const (
+		maxWorkers = 4
+		maxQueue   = 20
+		port       = ":8081"
+	)
+
+	// Buffer channel to store workers
+	jobQueue := make(chan Job, maxQueue)              // will handle all jobs recived from the requests
+	dispatcher := NewDispatcher(jobQueue, maxWorkers) // midleman jobs to workers
+	dispatcher.Run()
+
+	http.HandleFunc("/fib", func(w http.ResponseWriter, r *http.Request) {
+		RequestHandler(w, r, jobQueue)
+	})
+
+	// Start the server, and log any errors
+	log.Fatal(http.ListenAndServe(port, nil))
 }
