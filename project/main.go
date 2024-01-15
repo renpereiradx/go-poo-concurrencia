@@ -68,14 +68,6 @@ func (w Worker) Stop() {
 	}()
 }
 
-// Fibonacci calculates the fibonacci sequence
-func Fibonacci(n int) int {
-	if n <= 1 {
-		return n
-	}
-	return Fibonacci(n-1) + Fibonacci(n-2)
-}
-
 // NewDispatcher returns a new Dispatcher with the provided maxWorkers
 func NewDispatcher(jobQueue chan Job, maxWorkers int) *Dispatcher {
 	pool := make(chan chan Job, maxWorkers)
@@ -145,6 +137,14 @@ func RequestHandler(w http.ResponseWriter, r *http.Request, jobQueue chan Job) {
 	// Add the job to the queue
 	jobQueue <- job // send the job
 	w.WriteHeader(http.StatusOK)
+}
+
+// Fibonacci calculates the fibonacci sequence
+func Fibonacci(n int) int {
+	if n <= 1 {
+		return n
+	}
+	return Fibonacci(n-1) + Fibonacci(n-2)
 }
 
 func main() {
