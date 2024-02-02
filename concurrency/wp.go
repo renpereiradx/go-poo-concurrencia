@@ -1,3 +1,4 @@
+// Worker Pool
 package main
 
 import "fmt"
@@ -18,7 +19,7 @@ func main() {
 	}
 	// fmt.Println(len(jobs))
 	close(jobs)
-	fmt.Println(len(jobs))
+	// fmt.Println(len(jobs))
 
 	for r := 0; r < len(tasks); r++ {
 		fmt.Println(len(jobs))

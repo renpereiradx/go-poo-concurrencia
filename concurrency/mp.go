@@ -1,3 +1,4 @@
+// Multiplexación de canales
 package main
 
 import (
